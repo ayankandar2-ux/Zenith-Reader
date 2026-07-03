@@ -1,0 +1,6 @@
+{
+  "name": "Offline Reader",
+  "description": "A beautiful, lightweight, and extremely fast offline PDF and CBZ reader for comics, books, and manga.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
