@@ -1,0 +1,77 @@
+name: Android CI/CD Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant Execute Permission to Gradlew
+        run: chmod +x gradlew
+
+      - name: Prepare Signing Keystore
+        id: prepare-keystore
+        run: |
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Signing secrets found. Decoding release keystore..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+            echo "keystore_path=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
+            echo "store_password=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "key_password=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          else
+            echo "Warning: No KEYSTORE_BASE64 secret found. Generating a temporary self-signed keystore for building..."
+            keytool -genkeypair -v \
+              -keystore release.keystore \
+              -alias upload \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "tempstorepass" \
+              -keypass "tempkeypass" \
+              -dname "CN=OfflineReader, OU=Development, O=AIStudio, L=SanJose, S=California, C=US"
+            echo "keystore_path=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
+            echo "store_password=tempstorepass" >> $GITHUB_ENV
+            echo "key_password=tempkeypass" >> $GITHUB_ENV
+          fi
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Build Release APK
+        env:
+          KEYSTORE_PATH: ${{ env.keystore_path }}
+          STORE_PASSWORD: ${{ env.store_password }}
+          KEY_PASSWORD: ${{ env.key_password }}
+        run: ./gradlew assembleRelease
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
