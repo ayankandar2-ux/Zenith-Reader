@@ -362,10 +362,10 @@ fun LibraryScreen(
                                     },
                                     confirmButton = {
                                         TextButton(onClick = {
-                                            currentTab = "folders"
+                                            currentTab = "libraries"
                                             showFolderSwitcher = false
                                         }) {
-                                            Text("Manage Folders Screen")
+                                            Text("Libraries Screen")
                                         }
                                     },
                                     dismissButton = {
@@ -379,7 +379,9 @@ fun LibraryScreen(
                             Text(
                                 text = when (currentTab) {
                                     "history" -> getString("history")
-                                    "folders" -> "Manage Folders"
+                                    "favorites" -> getString("favorites")
+                                    "libraries" -> getString("libraries")
+                                    "settings" -> getString("settings")
                                     else -> "Statistics"
                                 },
                                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
@@ -416,18 +418,18 @@ fun LibraryScreen(
                                 onDismissRequest = { showOverflowMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Manage Folders") },
+                                    text = { Text(getString("libraries")) },
                                     leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
                                     onClick = {
-                                        currentTab = "folders"
+                                        currentTab = "libraries"
                                         showOverflowMenu = false
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Settings") },
+                                    text = { Text(getString("settings")) },
                                     leadingIcon = { Icon(Icons.Default.Settings, null) },
                                     onClick = {
-                                        onNavigateToSettings()
+                                        currentTab = "settings"
                                         showOverflowMenu = false
                                     }
                                 )
@@ -452,16 +454,22 @@ fun LibraryScreen(
                     label = { Text(getString("history")) }
                 )
                 NavigationBarItem(
-                    selected = currentTab == "folders",
-                    onClick = { currentTab = "folders" },
-                    icon = { Icon(Icons.Default.Folder, null) },
-                    label = { Text("Folders") }
+                    selected = currentTab == "favorites",
+                    onClick = { currentTab = "favorites" },
+                    icon = { Icon(if (currentTab == "favorites") Icons.Default.Favorite else Icons.Default.FavoriteBorder, null) },
+                    label = { Text(getString("favorites")) }
                 )
                 NavigationBarItem(
-                    selected = currentTab == "stats",
-                    onClick = { currentTab = "stats" },
-                    icon = { Icon(Icons.Default.Analytics, null) },
-                    label = { Text("Statistics") }
+                    selected = currentTab == "libraries",
+                    onClick = { currentTab = "libraries" },
+                    icon = { Icon(Icons.Default.Folder, null) },
+                    label = { Text(getString("libraries")) }
+                )
+                NavigationBarItem(
+                    selected = currentTab == "settings",
+                    onClick = { currentTab = "settings" },
+                    icon = { Icon(Icons.Default.Settings, null) },
+                    label = { Text(getString("settings")) }
                 )
             }
         },
@@ -801,7 +809,15 @@ fun LibraryScreen(
                         onBookClick = onBookSelected
                     )
                 }
-                "folders" -> {
+                "favorites" -> {
+                    FavoritesTab(
+                        books = books,
+                        isGridView = isGridView,
+                        viewModel = viewModel,
+                        onBookClick = onBookSelected
+                    )
+                }
+                "libraries" -> {
                     ManageFoldersTab(
                         viewModel = viewModel,
                         foldersList = foldersList,
@@ -813,10 +829,10 @@ fun LibraryScreen(
                         }
                     )
                 }
-                "stats" -> {
-                    StatisticsTab(
-                        books = books,
-                        viewModel = viewModel
+                "settings" -> {
+                    SettingsScreen(
+                        viewModel = viewModel,
+                        onBack = { currentTab = "library" }
                     )
                 }
             }
@@ -2802,6 +2818,100 @@ fun calculateStreakStats(books: List<BookEntity>): StreakStats {
 
 data class StreakStats(val currentStreak: Int, val longestStreak: Int)
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun FavoritesTab(
+    books: List<BookEntity>,
+    isGridView: Boolean,
+    viewModel: BookViewModel,
+    onBookClick: (BookEntity) -> Unit
+) {
+    val favoriteBooks = remember(books) { books.filter { it.isFavorite } }
+    
+    if (favoriteBooks.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Favorite,
+                    contentDescription = null,
+                    modifier = Modifier.size(72.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
+                Text(
+                    text = "No Favorites Yet",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Mark books and comics as favorites while browsing your library, and they will appear here.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(max = 280.dp)
+                )
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "My Favorites",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+            
+            if (isGridView) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 110.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    items(favoriteBooks, key = { it.id }) { book ->
+                        BookGridItem(
+                            book = book,
+                            isSelected = false,
+                            onSelectToggle = {},
+                            onLongClick = {},
+                            onClick = { onBookClick(book) },
+                            onFavoriteToggle = { viewModel.toggleFavorite(book) }
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    items(favoriteBooks, key = { it.id }) { book ->
+                        BookListItem(
+                            book = book,
+                            isSelected = false,
+                            onSelectToggle = {},
+                            onLongClick = {},
+                            onClick = { onBookClick(book) },
+                            onFavoriteToggle = { viewModel.toggleFavorite(book) },
+                            onDeleteFromLibrary = { viewModel.deleteSingleBookFromLibrary(book.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun ManageFoldersTab(
     viewModel: BookViewModel,
@@ -2825,11 +2935,11 @@ fun ManageFoldersTab(
         item {
             Column(modifier = Modifier.padding(bottom = 8.dp)) {
                 Text(
-                    text = "Reading Directories",
+                    text = "Library Sources",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
-                    text = "Add, scan, and switch between your local book and comic directories.",
+                    text = "Add, scan, and switch between your local libraries or folders.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
