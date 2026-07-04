@@ -192,8 +192,36 @@ object BookRenderer {
             try { zipInputStream?.close() } catch (ignored: Exception) {}
             try { inputStream?.close() } catch (ignored: Exception) {}
         }
-        // Natural/Alphabetical sorting of image entries
-        return entries.sortedWith(String.CASE_INSENSITIVE_ORDER)
+        // Natural sorting of image entries (so page2 < page10, unlike plain string sort)
+        return entries.sortedWith(naturalOrderComparator)
+    }
+
+    /**
+     * Natural order comparator: splits names into digit/non-digit chunks so that
+     * numeric parts are compared by value (page2 < page10) instead of lexicographically
+     * (which would otherwise put page10 before page2).
+     */
+    private val naturalOrderComparator = Comparator<String> { a, b ->
+        val chunkRegex = Regex("\\d+|\\D+")
+        val partsA = chunkRegex.findAll(a).map { it.value }.toList()
+        val partsB = chunkRegex.findAll(b).map { it.value }.toList()
+        val len = minOf(partsA.size, partsB.size)
+        var result = 0
+        for (i in 0 until len) {
+            val pa = partsA[i]
+            val pb = partsB[i]
+            val bothNumeric = pa.isNotEmpty() && pb.isNotEmpty() && pa[0].isDigit() && pb[0].isDigit()
+            val cmp = if (bothNumeric) {
+                (pa.toLongOrNull() ?: 0L).compareTo(pb.toLongOrNull() ?: 0L)
+            } else {
+                pa.compareTo(pb, ignoreCase = true)
+            }
+            if (cmp != 0) {
+                result = cmp
+                break
+            }
+        }
+        if (result != 0) result else partsA.size - partsB.size
     }
 
     /**
