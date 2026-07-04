@@ -23,9 +23,8 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
-
-      - name: Grant Execute Permission to Gradlew
-        run: chmod +x gradlew
+        with:
+          gradle-version: '9.3.1'
 
       - name: Prepare Signing Keystore
         id: prepare-keystore
@@ -55,7 +54,7 @@ jobs:
           fi
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Build Release APK
         env:
@@ -63,7 +62,7 @@ jobs:
           STORE_PASSWORD: ${{ env.store_password }}
           KEY_ALIAS: ${{ env.key_alias }}
           KEY_PASSWORD: ${{ env.key_password }}
-        run: ./gradlew assembleRelease
+        run: gradle assembleRelease
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
