@@ -26,6 +26,21 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
+      - name: Generate Debug Keystore
+        run: |
+          if [ ! -f debug.keystore ]; then
+            echo "debug.keystore not found (it's gitignored) - generating standard Android debug keystore..."
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
+
       - name: Prepare Signing Keystore
         id: prepare-keystore
         run: |
