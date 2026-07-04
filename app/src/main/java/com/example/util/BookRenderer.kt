@@ -63,15 +63,57 @@ object BookRenderer {
         return@withContext bitmap
     }
 
+    // Keep one PDF document session open across page requests instead of reopening
+    // the file and re-parsing the PDF structure on every single page (this was the
+    // main cause of janky/non-smooth scrolling in the PDF viewer).
+    private var openPdfPath: String? = null
+    private var openPdfDescriptor: ParcelFileDescriptor? = null
+    private var openPdfRenderer: PdfRenderer? = null
+    private val pdfLock = Any()
+
+    private fun getOrOpenPdfRenderer(context: Context, filePath: String): PdfRenderer? {
+        synchronized(pdfLock) {
+            if (openPdfPath == filePath && openPdfRenderer != null) {
+                return openPdfRenderer
+            }
+            // Switching to a different document (or first open) - close the old session.
+            closeOpenPdfSessionLocked()
+
+            val uri = Uri.parse(filePath)
+            val pfd = openFileDescriptor(context, uri) ?: return null
+            return try {
+                val renderer = PdfRenderer(pfd)
+                openPdfPath = filePath
+                openPdfDescriptor = pfd
+                openPdfRenderer = renderer
+                renderer
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to open PDF renderer for $filePath", e)
+                try { pfd.close() } catch (ignored: Exception) {}
+                null
+            }
+        }
+    }
+
+    private fun closeOpenPdfSessionLocked() {
+        try { openPdfRenderer?.close() } catch (ignored: Exception) {}
+        try { openPdfDescriptor?.close() } catch (ignored: Exception) {}
+        openPdfRenderer = null
+        openPdfDescriptor = null
+        openPdfPath = null
+    }
+
     /**
      * Clears all cached pages from memory
      */
     fun clearCache() {
         pageCache.evictAll()
+        synchronized(pdfLock) { closeOpenPdfSessionLocked() }
     }
 
     /**
      * Renders a specific page of a PDF using standard Android PdfRenderer.
+     * Reuses a single open PdfRenderer session per document for smooth scrolling.
      */
     private fun renderPdfPage(
         context: Context,
@@ -79,15 +121,12 @@ object BookRenderer {
         pageIndex: Int,
         maxWidth: Int,
         maxHeight: Int
-    ): Bitmap? {
-        val uri = Uri.parse(filePath)
-        val pfd = openFileDescriptor(context, uri) ?: return null
-        var renderer: PdfRenderer? = null
+    ): Bitmap? = synchronized(pdfLock) {
+        val renderer = getOrOpenPdfRenderer(context, filePath) ?: return@synchronized null
+        if (pageIndex < 0 || pageIndex >= renderer.pageCount) return@synchronized null
+
         var page: PdfRenderer.Page? = null
         try {
-            renderer = PdfRenderer(pfd)
-            if (pageIndex < 0 || pageIndex >= renderer.pageCount) return null
-
             page = renderer.openPage(pageIndex)
 
             // Determine appropriate scale to fit maxWidth/maxHeight while preserving aspect ratio
@@ -104,14 +143,14 @@ object BookRenderer {
 
             val bitmap = Bitmap.createBitmap(destWidth, destHeight, Bitmap.Config.ARGB_8888)
             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            return bitmap
+            bitmap
         } catch (e: Exception) {
             Log.e(TAG, "Failed to render PDF page $pageIndex", e)
-            return null
+            null
         } finally {
+            // Only close the page - the renderer and file descriptor stay open
+            // and are reused for the next page in this document.
             try { page?.close() } catch (ignored: Exception) {}
-            try { renderer?.close() } catch (ignored: Exception) {}
-            try { pfd.close() } catch (ignored: Exception) {}
         }
     }
 
