@@ -60,12 +60,12 @@ jobs:
               -keysize 2048 \
               -validity 10000 \
               -storepass "tempstorepass" \
-              -keypass "tempkeypass" \
+              -keypass "tempstorepass" \
               -dname "CN=OfflineReader, OU=Development, O=AIStudio, L=SanJose, S=California, C=US"
             echo "keystore_path=${{ github.workspace }}/release.keystore" >> $GITHUB_ENV
             echo "store_password=tempstorepass" >> $GITHUB_ENV
             echo "key_alias=upload" >> $GITHUB_ENV
-            echo "key_password=tempkeypass" >> $GITHUB_ENV
+            echo "key_password=tempstorepass" >> $GITHUB_ENV
           fi
 
       - name: Build Debug APK
