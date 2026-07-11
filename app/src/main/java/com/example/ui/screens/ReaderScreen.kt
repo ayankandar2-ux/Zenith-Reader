@@ -944,16 +944,11 @@ fun ReaderPageItem(
 ) {
     var bitmap by remember(book.id, pageIndex) { mutableStateOf<Bitmap?>(null) }
     var isLoading by remember(book.id, pageIndex) { mutableStateOf(true) }
-    var aspectRatio by remember(book.id, pageIndex) { mutableFloatStateOf(0.7f) } // placeholder until real size known
 
     // Async loader
     LaunchedEffect(book.id, pageIndex) {
         isLoading = true
-        val bmp = BookRenderer.getPageBitmap(context, book.id, book.filePath, book.format, pageIndex)
-        bitmap = bmp
-        if (bmp != null && bmp.height > 0) {
-            aspectRatio = bmp.width.toFloat() / bmp.height.toFloat()
-        }
+        bitmap = BookRenderer.getPageBitmap(context, book.id, book.filePath, book.format, pageIndex)
         isLoading = false
     }
 
@@ -969,7 +964,7 @@ fun ReaderPageItem(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(aspectRatio)
+            .aspectRatio(0.7f) // approximate comic page ratio
             .background(Color.Black)
             .combinedClickable(
                 onClick = {}, // consumes standard simple clicks to avoid list trigger

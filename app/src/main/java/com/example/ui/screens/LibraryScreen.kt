@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.data.model.BookEntity
 import com.example.ui.viewmodel.BookViewModel
 import com.example.ui.viewmodel.FolderStats
@@ -73,6 +74,16 @@ fun LibraryScreen(
     val foldersList by viewModel.foldersList.collectAsState()
     val activeFolderUri by viewModel.activeFolderUri.collectAsState()
     val recentFolders by viewModel.recentFolders.collectAsState()
+
+    val unfinishedBooks = remember(books) {
+        books.filter { it.lastOpened > 0 && (it.pageCount <= 0 || it.lastPage < it.pageCount - 1) }
+    }
+    val continueReadingBook = remember(unfinishedBooks) {
+        unfinishedBooks.maxByOrNull { it.lastOpened }
+    }
+    val recentlyOpenedBooks = remember(books) {
+        books.filter { it.lastOpened > 0 }.sortedByDescending { it.lastOpened }.take(30)
+    }
 
     fun getString(key: String): String = com.example.util.Localization.getString(appLang, key)
 
@@ -722,10 +733,6 @@ fun LibraryScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         if (searchQuery.isEmpty() && filterBy == BookViewModel.FilterType.ALL) {
-                            val unfinishedBooks = books.filter { it.lastOpened > 0 && (it.pageCount <= 0 || it.lastPage < it.pageCount - 1) }
-                            val continueReadingBook = unfinishedBooks.maxByOrNull { it.lastOpened }
-                            val recentlyOpenedBooks = books.filter { it.lastOpened > 0 }.sortedByDescending { it.lastOpened }.take(30)
-
                             continueReadingBook?.let { cr ->
                                 item(span = { GridItemSpan(maxLineSpan) }) {
                                     ContinueReadingSection(book = cr, onClick = { onBookSelected(cr) })
@@ -763,10 +770,6 @@ fun LibraryScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         if (searchQuery.isEmpty() && filterBy == BookViewModel.FilterType.ALL) {
-                            val unfinishedBooks = books.filter { it.lastOpened > 0 && (it.pageCount <= 0 || it.lastPage < it.pageCount - 1) }
-                            val continueReadingBook = unfinishedBooks.maxByOrNull { it.lastOpened }
-                            val recentlyOpenedBooks = books.filter { it.lastOpened > 0 }.sortedByDescending { it.lastOpened }.take(30)
-
                             continueReadingBook?.let { cr ->
                                 item {
                                     ContinueReadingSection(book = cr, onClick = { onBookSelected(cr) })
@@ -918,31 +921,30 @@ fun LibraryScreen(
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         val context = LocalContext.current
-                        val coverFile = File(context.cacheDir, "book_covers/${book.id.hashCode()}.png")
-                        if (coverFile.exists() && coverFile.length() > 0) {
-                            AsyncImage(
-                                model = coverFile,
-                                contentDescription = book.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        if (book.format == "pdf") Color(0xFFE57373) else Color(0xFF64B5F6)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = book.format.uppercase(),
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
+                        val coverFile = remember(book.id) { File(context.cacheDir, "book_covers/${book.id.hashCode()}.png") }
+                        SubcomposeAsyncImage(
+                            model = coverFile,
+                            contentDescription = book.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            error = {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            if (book.format == "pdf") Color(0xFFE57373) else Color(0xFF64B5F6)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = book.format.uppercase(),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                }
                             }
-                        }
+                        )
                     }
 
                     // Right Details Panel
@@ -1310,41 +1312,40 @@ fun BookGridItem(
         Box(modifier = Modifier.fillMaxWidth().aspectRatio(0.7f)) {
             // Thumbnail Cover using Coil loading Cached cover png
             val context = LocalContext.current
-            val coverFile = File(context.cacheDir, "book_covers/${book.id.hashCode()}.png")
-            if (coverFile.exists() && coverFile.length() > 0) {
-                AsyncImage(
-                    model = coverFile,
-                    contentDescription = book.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                // Beautiful procedural placeholder icon for files missing generated images
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            if (book.format == "pdf") Color(0xFFE57373) else Color(0xFF64B5F6)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = if (book.format == "pdf") Icons.Default.Description else Icons.Default.MenuBook,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = book.format.uppercase(),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
+            val coverFile = remember(book.id) { File(context.cacheDir, "book_covers/${book.id.hashCode()}.png") }
+            SubcomposeAsyncImage(
+                model = coverFile,
+                contentDescription = book.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                error = {
+                    // Beautiful procedural placeholder icon for files missing generated images
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                if (book.format == "pdf") Color(0xFFE57373) else Color(0xFF64B5F6)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = if (book.format == "pdf") Icons.Default.Description else Icons.Default.MenuBook,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = book.format.uppercase(),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
-            }
+            )
 
             // Top overlay bar for selection and favorites
             Row(
@@ -1472,31 +1473,30 @@ fun BookListItem(
                     .clip(RoundedCornerShape(8.dp))
             ) {
                 val context = LocalContext.current
-                val coverFile = File(context.cacheDir, "book_covers/${book.id.hashCode()}.png")
-                if (coverFile.exists() && coverFile.length() > 0) {
-                    AsyncImage(
-                        model = coverFile,
-                        contentDescription = book.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                if (book.format == "pdf") Color(0xFFE57373) else Color(0xFF64B5F6)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = book.format.uppercase(),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
-                        )
+                val coverFile = remember(book.id) { File(context.cacheDir, "book_covers/${book.id.hashCode()}.png") }
+                SubcomposeAsyncImage(
+                    model = coverFile,
+                    contentDescription = book.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    error = {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    if (book.format == "pdf") Color(0xFFE57373) else Color(0xFF64B5F6)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = book.format.uppercase(),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
-                }
+                )
 
                 if (isSelected) {
                     Box(
@@ -1758,29 +1758,30 @@ fun BookCoverImage(
 ) {
     val context = LocalContext.current
     val coverFile = remember(book.id) { File(context.cacheDir, "book_covers/${book.id.hashCode()}.png") }
-    if (coverFile.exists() && coverFile.length() > 0) {
-        AsyncImage(
-            model = coverFile,
-            contentDescription = book.title,
-            contentScale = ContentScale.Crop,
-            modifier = modifier
-        )
-    } else {
-        Box(
-            modifier = modifier
-                .background(
-                    if (book.format == "pdf") Color(0xFFE57373) else Color(0xFF64B5F6)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = book.format.uppercase(),
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.labelLarge
-            )
+    
+    SubcomposeAsyncImage(
+        model = coverFile,
+        contentDescription = book.title,
+        contentScale = ContentScale.Crop,
+        modifier = modifier,
+        error = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        if (book.format == "pdf") Color(0xFFE57373) else Color(0xFF64B5F6)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = book.format.uppercase(),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
         }
-    }
+    )
 }
 
 @Composable
