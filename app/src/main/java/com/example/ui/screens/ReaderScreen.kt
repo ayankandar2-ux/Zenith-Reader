@@ -289,6 +289,7 @@ fun ReaderScreen(
                         context = context,
                         book = activeBook,
                         pageIndex = pageIdx,
+                        readerMode = readerMode,
                         comfortFilter = readerComfortFilter,
                         onCenterTap = { showOverlays = !showOverlays },
                         onEdgeTap = { isForward ->
@@ -311,6 +312,7 @@ fun ReaderScreen(
                             context = context,
                             book = activeBook,
                             pageIndex = pageIdx,
+                            readerMode = readerMode,
                             comfortFilter = readerComfortFilter,
                             onCenterTap = { showOverlays = !showOverlays },
                             onEdgeTap = { isForward ->
@@ -938,23 +940,67 @@ fun ReaderPageItem(
     context: Context,
     book: BookEntity,
     pageIndex: Int,
+    readerMode: String,
     comfortFilter: String,
     onCenterTap: () -> Unit,
     onEdgeTap: (Boolean) -> Unit
 ) {
     var bitmap by remember(book.id, pageIndex) { mutableStateOf<Bitmap?>(null) }
     var isLoading by remember(book.id, pageIndex) { mutableStateOf(true) }
-    var aspectRatio by remember(book.id, pageIndex) { mutableFloatStateOf(0.7f) } // placeholder until real size known
 
     // Async loader
     LaunchedEffect(book.id, pageIndex) {
         isLoading = true
-        val bmp = BookRenderer.getPageBitmap(context, book.id, book.filePath, book.format, pageIndex)
-        bitmap = bmp
-        if (bmp != null && bmp.height > 0) {
-            aspectRatio = bmp.width.toFloat() / bmp.height.toFloat()
-        }
+        bitmap = BookRenderer.getPageBitmap(context, book.id, book.filePath, book.format, pageIndex)
         isLoading = false
+    }
+
+    // Split extremely long vertical strips into smaller sequential chunks (max height 2048px)
+    val maxChunkHeight = 2048
+    val slices = remember(bitmap) {
+        val bmp = bitmap
+        if (bmp == null) {
+            emptyList()
+        } else if (bmp.height <= maxChunkHeight) {
+            listOf(bmp)
+        } else {
+            val list = mutableListOf<Bitmap>()
+            val w = bmp.width
+            val h = bmp.height
+            var startY = 0
+            while (startY < h) {
+                val chunkH = minOf(maxChunkHeight, h - startY)
+                try {
+                    val chunk = Bitmap.createBitmap(bmp, 0, startY, w, chunkH)
+                    list.add(chunk)
+                } catch (e: Exception) {
+                    android.util.Log.e("ReaderPageItem", "Failed to create slice at startY $startY, height $chunkH", e)
+                }
+                startY += chunkH
+            }
+            list
+        }
+    }
+
+    // Dynamic aspect ratio calculation to prevent any layout stretching or misalignments
+    val aspectRatio = remember(bitmap) {
+        val bmp = bitmap
+        if (bmp != null) {
+            bmp.width.toFloat() / bmp.height.toFloat()
+        } else {
+            0.7f
+        }
+    }
+
+    val containerModifier = if (readerMode == "horizontal") {
+        Modifier
+            .fillMaxSize()
+            .wrapContentSize(Alignment.Center)
+            .aspectRatio(aspectRatio)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(aspectRatio)
     }
 
     // Interactive zoom and pan modifiers
@@ -967,9 +1013,7 @@ fun ReaderPageItem(
     }
 
     BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(aspectRatio)
+        modifier = containerModifier
             .background(Color.Black)
             .combinedClickable(
                 onClick = {}, // consumes standard simple clicks to avoid list trigger
@@ -1041,13 +1085,34 @@ fun ReaderPageItem(
                         else -> null
                     }
 
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = "Page ${pageIndex + 1}",
-                        contentScale = ContentScale.Fit,
-                        colorFilter = colorFilter,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    if (slices.size > 1) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Top,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            slices.forEach { sliceBmp ->
+                                val sliceRatio = sliceBmp.width.toFloat() / sliceBmp.height.toFloat()
+                                Image(
+                                    bitmap = sliceBmp.asImageBitmap(),
+                                    contentDescription = "Page ${pageIndex + 1} Slice",
+                                    contentScale = ContentScale.FillWidth,
+                                    colorFilter = colorFilter,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(sliceRatio)
+                                )
+                            }
+                        }
+                    } else {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "Page ${pageIndex + 1}",
+                            contentScale = ContentScale.Fit,
+                            colorFilter = colorFilter,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 } ?: Box(
                     modifier = Modifier
                         .fillMaxSize()
