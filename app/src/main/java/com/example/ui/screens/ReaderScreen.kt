@@ -992,13 +992,21 @@ fun ReaderPageItem(
         }
     }
 
-    val containerModifier = if (readerMode == "horizontal") {
-        Modifier
+    val containerModifier = when {
+        readerMode == "horizontal" -> Modifier
             .fillMaxSize()
             .wrapContentSize(Alignment.Center)
             .aspectRatio(aspectRatio)
-    } else {
-        Modifier
+        // When a page is split into multiple slices, don't ALSO force the container's
+        // height from the full-page aspect ratio. Each slice already sizes itself from
+        // its own real aspect ratio; letting both a top-down (full-page ratio) and a
+        // bottom-up (summed slice heights) constraint apply at once let them drift out
+        // of sync (rounding across many slices), causing panels to overlap the next
+        // page or leave a gap - now content height is the single source of truth.
+        slices.size > 1 -> Modifier
+            .fillMaxWidth()
+            .wrapContentHeight()
+        else -> Modifier
             .fillMaxWidth()
             .aspectRatio(aspectRatio)
     }
@@ -1087,7 +1095,7 @@ fun ReaderPageItem(
 
                     if (slices.size > 1) {
                         Column(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.Top,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {

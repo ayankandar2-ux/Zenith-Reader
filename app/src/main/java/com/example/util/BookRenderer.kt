@@ -19,6 +19,76 @@ import java.util.zip.ZipInputStream
 object BookRenderer {
     private const val TAG = "BookRenderer"
 
+    /**
+     * Detects Adobe CMYK/YCCK JPEGs by scanning JPEG marker segments for the
+     * Adobe APP14 marker (transform == 2, i.e. YCCK) combined with a 4-component
+     * Start-Of-Frame (i.e. an actual CMYK image, not just any Adobe-tagged RGB JPEG).
+     *
+     * Android's Skia-based JPEG decoder does not correctly convert this variant,
+     * which is why affected pages render with an inverted, reddish/"bloody" tint.
+     */
+    private fun isAdobeCmykJpeg(bytes: ByteArray): Boolean {
+        if (bytes.size < 4 || (bytes[0].toInt() and 0xFF) != 0xFF || (bytes[1].toInt() and 0xFF) != 0xD8) {
+            return false // not a JPEG
+        }
+        var offset = 2
+        var isYcck = false
+        var componentCount = 0
+        try {
+            while (offset + 4 <= bytes.size) {
+                if ((bytes[offset].toInt() and 0xFF) != 0xFF) break
+                val marker = bytes[offset + 1].toInt() and 0xFF
+
+                // Markers with no length field
+                if (marker == 0xD8 || marker == 0xD9 || marker == 0x01 || marker in 0xD0..0xD7) {
+                    offset += 2
+                    continue
+                }
+                if (marker == 0xDA) break // Start of entropy-coded data - stop scanning headers
+
+                val length = ((bytes[offset + 2].toInt() and 0xFF) shl 8) or (bytes[offset + 3].toInt() and 0xFF)
+                val segStart = offset + 4
+
+                if (marker == 0xEE && segStart + 12 <= bytes.size) { // APP14 "Adobe" marker
+                    val tag = String(bytes, segStart, 5, Charsets.US_ASCII)
+                    if (tag == "Adobe") {
+                        val transform = bytes[segStart + 11].toInt() and 0xFF
+                        if (transform == 2) isYcck = true // 2 = YCCK (CMYK-derived)
+                    }
+                } else if (marker in intArrayOf(0xC0, 0xC1, 0xC2, 0xC3) && segStart + 6 <= bytes.size) { // SOF0-3
+                    componentCount = bytes[segStart + 5].toInt() and 0xFF
+                }
+
+                offset += 2 + length
+            }
+        } catch (e: Exception) {
+            return false
+        }
+        return isYcck && componentCount == 4
+    }
+
+    /**
+     * Corrects the color inversion Android produces when it (mis)decodes an
+     * Adobe CMYK/YCCK JPEG, restoring the intended colors.
+     */
+    private fun correctCmykColorInversion(bitmap: Bitmap): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        for (i in pixels.indices) {
+            val p = pixels[i]
+            val a = (p shr 24) and 0xFF
+            val r = 255 - ((p shr 16) and 0xFF)
+            val g = 255 - ((p shr 8) and 0xFF)
+            val b = 255 - (p and 0xFF)
+            pixels[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        val fixed = Bitmap.createBitmap(width, height, bitmap.config ?: Bitmap.Config.ARGB_8888)
+        fixed.setPixels(pixels, 0, width, 0, 0, width, height)
+        return fixed
+    }
+
     // In-memory cache for rendered pages to ensure butter-smooth scrolling
     private val pageCache = object : LruCache<String, Bitmap>(30) {
         override fun sizeOf(key: String, value: Bitmap): Int {
@@ -186,8 +256,22 @@ object BookRenderer {
                     // Calculate inSampleSize to avoid OOM
                     options.inSampleSize = calculateInSampleSize(options, maxWidth, maxHeight)
                     options.inJustDecodeBounds = false
+                    options.inPreferredConfig = Bitmap.Config.ARGB_8888
 
-                    return BitmapFactory.decodeByteArray(byteBytes, 0, byteBytes.size, options)
+                    val decoded = BitmapFactory.decodeByteArray(byteBytes, 0, byteBytes.size, options)
+                        ?: return null
+
+                    // Android's built-in JPEG decoder mishandles Adobe CMYK/YCCK JPEGs
+                    // (common in scanned manga/comic exports), producing an inverted-looking
+                    // image with a harsh red/dark "bloody" cast, especially on light
+                    // backgrounds. Detect this case and correct the channels.
+                    return if (isAdobeCmykJpeg(byteBytes)) {
+                        val fixed = correctCmykColorInversion(decoded)
+                        if (fixed !== decoded) decoded.recycle()
+                        fixed
+                    } else {
+                        decoded
+                    }
                 }
                 zipInputStream.closeEntry()
                 entry = zipInputStream.nextEntry
