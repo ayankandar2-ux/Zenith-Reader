@@ -44,6 +44,8 @@ import com.example.data.model.BookEntity
 import com.example.ui.viewmodel.BookViewModel
 import com.example.util.BookRenderer
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.debounce
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -195,11 +197,27 @@ fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+    // Keep the page indicator in sync instantly (cheap, local state only).
+    LaunchedEffect(listState.firstVisibleItemIndex) {
         if (readerMode != "horizontal" && pageCount > 0) {
             currentPageIndex = listState.firstVisibleItemIndex
-            saveProgressLambda()
         }
+    }
+
+    // Persist progress (database write + StateFlow update, which triggers
+    // recomposition) only after scrolling has paused for a moment, instead of on
+    // every single scroll-offset change. The offset changes on nearly every frame
+    // during a fling, so doing this expensive work per-frame caused real stutter
+    // that felt like the scroll randomly stopping/catching on its own - not
+    // something the user's finger was doing.
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemScrollOffset }
+            .debounce(300)
+            .collect {
+                if (readerMode != "horizontal" && pageCount > 0) {
+                    saveProgressLambda()
+                }
+            }
     }
 
     // Automatically save progress when backgrounding/minimizing/disposing
