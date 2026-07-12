@@ -96,6 +96,17 @@ object BookRenderer {
         }
     }
 
+    // Lightweight synchronous store of each page's real aspect ratio, populated as
+    // soon as a bitmap is decoded (including via background prefetch). Lets the UI
+    // size a page correctly on its very first composition instead of starting from
+    // a placeholder ratio and waiting on an async round-trip - closing the last gap
+    // that caused a visible jump/cut when scrolling to a newly-decoded page.
+    private val aspectRatioCache = mutableMapOf<String, Float>()
+
+    fun getCachedAspectRatio(bookId: String, pageIndex: Int): Float? {
+        return aspectRatioCache["${bookId}_$pageIndex"]
+    }
+
     // Helper to generate a unique cache key
     private fun getCacheKey(bookId: String, pageIndex: Int, width: Int, height: Int): String {
         return "${bookId}_${pageIndex}_${width}_${height}"
@@ -129,6 +140,9 @@ object BookRenderer {
 
         if (bitmap != null) {
             pageCache.put(cacheKey, bitmap)
+            if (bitmap.height > 0) {
+                aspectRatioCache["${bookId}_$pageIndex"] = bitmap.width.toFloat() / bitmap.height.toFloat()
+            }
         }
         return@withContext bitmap
     }
@@ -177,6 +191,7 @@ object BookRenderer {
      */
     fun clearCache() {
         pageCache.evictAll()
+        aspectRatioCache.clear()
         synchronized(pdfLock) { closeOpenPdfSessionLocked() }
     }
 

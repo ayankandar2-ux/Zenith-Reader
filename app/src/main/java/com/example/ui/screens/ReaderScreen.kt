@@ -67,6 +67,17 @@ fun ReaderScreen(
     var autoScrollSpeed by remember { mutableFloatStateOf(10f) }
 
     val context = LocalContext.current
+
+    // Render pages at a resolution based on the actual device screen instead of a
+    // hardcoded 1080x1920 cap, which needlessly downscaled (and blurred) pages on
+    // higher-resolution devices. A 1.5x multiplier keeps some headroom for pinch-zoom
+    // clarity, capped to avoid excessive memory use on very high-res displays.
+    // IMPORTANT: this exact value must be used for both prefetching and the actual
+    // display load below - the page cache key includes width/height, so a mismatch
+    // would make prefetching a no-op (cache miss on the "real" load).
+    val displayMetrics = context.resources.displayMetrics
+    val renderMaxWidth = remember { (displayMetrics.widthPixels * 1.5f).toInt().coerceIn(1080, 2160) }
+    val renderMaxHeight = remember { (displayMetrics.heightPixels * 1.5f).toInt().coerceIn(1920, 3840) }
     val coroutineScope = rememberCoroutineScope()
 
     if (book == null) {
@@ -274,7 +285,7 @@ fun ReaderScreen(
                 val target = currentPageIndex + offset
                 if (target < pageCount) {
                     launch {
-                        BookRenderer.getPageBitmap(context, activeBook.id, activeBook.filePath, activeBook.format, target)
+                        BookRenderer.getPageBitmap(context, activeBook.id, activeBook.filePath, activeBook.format, target, renderMaxWidth, renderMaxHeight)
                     }
                 }
             }
@@ -310,6 +321,8 @@ fun ReaderScreen(
                         pageIndex = pageIdx,
                         readerMode = readerMode,
                         comfortFilter = readerComfortFilter,
+                        renderMaxWidth = renderMaxWidth,
+                        renderMaxHeight = renderMaxHeight,
                         onCenterTap = { showOverlays = !showOverlays },
                         onEdgeTap = { isForward ->
                             if (isForward) {
@@ -333,6 +346,8 @@ fun ReaderScreen(
                             pageIndex = pageIdx,
                             readerMode = readerMode,
                             comfortFilter = readerComfortFilter,
+                            renderMaxWidth = renderMaxWidth,
+                            renderMaxHeight = renderMaxHeight,
                             onCenterTap = { showOverlays = !showOverlays },
                             onEdgeTap = { isForward ->
                                 if (isForward) {
@@ -961,16 +976,28 @@ fun ReaderPageItem(
     pageIndex: Int,
     readerMode: String,
     comfortFilter: String,
+    renderMaxWidth: Int,
+    renderMaxHeight: Int,
     onCenterTap: () -> Unit,
     onEdgeTap: (Boolean) -> Unit
 ) {
     var bitmap by remember(book.id, pageIndex) { mutableStateOf<Bitmap?>(null) }
     var isLoading by remember(book.id, pageIndex) { mutableStateOf(true) }
+    // Seed from the synchronous cache so an already-prefetched page is sized
+    // correctly on its very first composition, instead of starting from a
+    // placeholder ratio and visibly jumping once the async load resolves.
+    var aspectRatio by remember(book.id, pageIndex) {
+        mutableFloatStateOf(BookRenderer.getCachedAspectRatio(book.id, pageIndex) ?: 0.7f)
+    }
 
     // Async loader
     LaunchedEffect(book.id, pageIndex) {
         isLoading = true
-        bitmap = BookRenderer.getPageBitmap(context, book.id, book.filePath, book.format, pageIndex)
+        val bmp = BookRenderer.getPageBitmap(context, book.id, book.filePath, book.format, pageIndex, renderMaxWidth, renderMaxHeight)
+        bitmap = bmp
+        if (bmp != null && bmp.height > 0) {
+            aspectRatio = bmp.width.toFloat() / bmp.height.toFloat()
+        }
         isLoading = false
     }
 
@@ -1001,15 +1028,8 @@ fun ReaderPageItem(
         }
     }
 
-    // Dynamic aspect ratio calculation to prevent any layout stretching or misalignments
-    val aspectRatio = remember(bitmap) {
-        val bmp = bitmap
-        if (bmp != null) {
-            bmp.width.toFloat() / bmp.height.toFloat()
-        } else {
-            0.7f
-        }
-    }
+    // aspectRatio is now managed directly as state above (seeded from the sync cache
+    // and updated once the real bitmap loads), so no separate derived value is needed here.
 
     val containerModifier = when {
         readerMode == "horizontal" -> Modifier
