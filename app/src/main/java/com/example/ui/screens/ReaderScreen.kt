@@ -262,6 +262,25 @@ fun ReaderScreen(
         }
     }
 
+    // Prefetch upcoming pages so they're already decoded (and cached) by the time they
+    // scroll into view. Without this, decoding only started the moment a page entered
+    // the viewport, so its container would visibly jump from the placeholder size to
+    // the real image size right as the user reached it - feeling like the scroll
+    // "cuts" instead of flowing smoothly, unlike Mihon/Google Files.
+    LaunchedEffect(currentPageIndex, readerMode) {
+        if (readerMode != "horizontal") {
+            val prefetchAhead = 3
+            for (offset in 1..prefetchAhead) {
+                val target = currentPageIndex + offset
+                if (target < pageCount) {
+                    launch {
+                        BookRenderer.getPageBitmap(context, activeBook.id, activeBook.filePath, activeBook.format, target)
+                    }
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
